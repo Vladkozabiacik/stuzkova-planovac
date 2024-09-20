@@ -1,68 +1,74 @@
 package main
 
 import (
-    "fmt"
-    "net/http"
-    "html/template"
+	"log"
+	"net/http"
+	"sync"
+
+	"github.com/gorilla/websocket"
 )
 
-type Event struct {
-    Name string
-    Date string
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
 }
 
-var events []Event
+var connections = make([]*websocket.Conn, 0) // Store active connections
+var mu sync.Mutex                            // Mutex to protect access to connections
 
 func main() {
-    http.HandleFunc("/", serveIndex)
-    http.HandleFunc("/add-event", addEvent)
+	http.HandleFunc("/ws", handleWebSocket)
+	http.Handle("/", http.FileServer(http.Dir("./static")))
 
-    fmt.Println("Server started at http://localhost:8080")
-    http.ListenAndServe(":8080", nil)
+	log.Println("Server started on :8080")
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
-func serveIndex(w http.ResponseWriter, r *http.Request) {
-    tmpl := `<html>
-<head><title>Maturitní Slavnost Management</title></head>
-<body>
-    <h1>Maturitní Slavnost Management</h1>
-    <form id="event-form" hx-post="/add-event" hx-target="#events-list" hx-swap="beforeend">
-        <label for="event-name">Event Name:</label>
-        <input type="text" id="event-name" name="name" required>
-        
-        <label for="event-date">Date:</label>
-        <input type="date" id="event-date" name="date" required>
-        
-        <button type="submit">Add Event</button>
-    </form>
-    <ul id="events-list">
-        {{range .}}
-        <li>{{.Name}} - {{.Date}}</li>
-        {{end}}
-    </ul>
-</body>
-</html>`
+func handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println("Error upgrading connection:", err)
+		return
+	}
+	defer conn.Close()
 
-    t, err := template.New("index").Parse(tmpl)
-    if err != nil {
-        http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-        return
-    }
+	// Add the new connection to the list
+	mu.Lock()
+	connections = append(connections, conn)
+	mu.Unlock()
 
-    t.Execute(w, events)
+	for {
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			log.Println("Error reading message:", err)
+			break
+		}
+		log.Printf("Received message: %s", msg)
+
+		// Broadcast the message to all connected clients
+		broadcastMessage(msg)
+	}
+
+	// Remove the connection when done
+	mu.Lock()
+	for i, c := range connections {
+		if c == conn {
+			connections = append(connections[:i], connections[i+1:]...) // Remove the connection
+			break
+		}
+	}
+	mu.Unlock()
 }
 
-func addEvent(w http.ResponseWriter, r *http.Request) {
-    if r.Method == http.MethodPost {
-        name := r.FormValue("name")
-        date := r.FormValue("date")
-
-        event := Event{Name: name, Date: date}
-        events = append(events, event)
-
-        // Return new event as HTML
-        fmt.Fprintf(w, "<li>%s - %s</li>", name, date)
-    } else {
-        http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-    }
+func broadcastMessage(msg []byte) {
+	mu.Lock()
+	defer mu.Unlock()
+	for _, conn := range connections {
+		err := conn.WriteMessage(websocket.TextMessage, msg)
+		if err != nil {
+			log.Println("Error writing message:", err)
+			conn.Close() // Close the connection on error
+		}
+	}
 }
