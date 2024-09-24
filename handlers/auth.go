@@ -12,44 +12,54 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-var store = sessions.NewCookieStore([]byte(os.Getenv("cookie_store_key")))
+var store = sessions.NewCookieStore([]byte(os.Getenv("COOKIE_KEY")))
 
 // HTTP handler for user registration
+
 func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Decode the request body to get username and password
 	var user struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+		log.Printf("Error decoding request body: %v", err)
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
 
-	// Hash the password before storing
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
 	if err != nil {
+		log.Printf("Error hashing password: %v", err)
 		http.Error(w, "Error hashing password", http.StatusInternalServerError)
 		return
 	}
 
-	// Insert the new user into the database
 	_, err = models.DB.Exec("INSERT INTO users (username, password) VALUES ($1, $2)", user.Username, hashedPassword)
 	if err != nil {
+		log.Printf("Error saving user to database: %v", err)
 		http.Error(w, "Error saving user to database", http.StatusInternalServerError)
 		return
 	}
 
-	// Create a session for the registered user
-	session, _ := store.Get(r, "session")
+	session, err := store.Get(r, "session")
+	if err != nil {
+		log.Printf("Error retrieving session: %v", err)
+		http.Error(w, "Could not retrieve session", http.StatusInternalServerError)
+		return
+	}
+
 	session.Values["username"] = user.Username
-	session.Save(r, w)
+	if err := session.Save(r, w); err != nil {
+		log.Printf("Error saving session: %v", err)
+		http.Error(w, "Could not save session", http.StatusInternalServerError)
+		return
+	}
 
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{"message": "User registered successfully"})
