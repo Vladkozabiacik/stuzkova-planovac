@@ -8,37 +8,40 @@
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <script src="https://unpkg.com/htmx.org"></script>
     <script>
-        let userIP = ""; // Initialize userIP variable
+        let userIP = "";
 
-        // Fetch the user's IP when the page loads
         fetch("/get-ip")
             .then(response => response.json())
             .then(data => {
-                userIP = data.ip; // Store the user IP
+                userIP = data.ip;
             });
-
+        function checkSession() {
+            fetch('/session')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.username) {
+                        username = data.username;
+                        document.getElementById('sessionInfo').innerText = `Session: ${username}`;
+                    }
+                });
+        }
         const ws = new WebSocket("ws://10.1.3.183:8080/ws");
-        const cursors = {}; // Store cursor positions and IPs
+        const cursors = {};
 
         ws.onmessage = function (event) {
+            console.log("Message from server:", event.data); // Log server messages to console
             try {
-                const data = JSON.parse(event.data); // Try to parse the message as JSON
+                const data = JSON.parse(event.data);
 
                 if (data.type === 'cursor') {
                     cursors[data.ip] = { x: data.x, y: data.y };
                     renderCursors();
                 } else if (data.type === 'disconnected') {
-                    // Remove the cursor of the disconnected user
                     delete cursors[data.ip];
                     renderCursors();
                 }
             } catch (error) {
-                // If it's not JSON, handle it as plain text chat message
-                const chat = document.getElementById("chat");
-                chat.innerHTML += `<div>${event.data}</div>`;
-
-                // Scroll to the bottom of the chat
-                chat.scrollTop = chat.scrollHeight;
+                console.error("Error parsing message:", error);
             }
         };
 
@@ -50,12 +53,11 @@
 
         function sendCursorPosition(event) {
             const rect = document.body.getBoundingClientRect();
-            let x = event.clientX - rect.left + window.scrollX; // Add scroll offset
-            let y = event.clientY - rect.top + window.scrollY;  // Add scroll offset
+            let x = event.clientX - rect.left + window.scrollX;
+            let y = event.clientY - rect.top + window.scrollY;
 
-            // Clamp x and y values to prevent cursor from going off the page
-            x = Math.max(0, Math.min(window.innerWidth - 10, x)); // 10 is the cursor width
-            y = Math.max(0, Math.min(window.innerHeight - 10, y)); // 10 is the cursor height
+            x = Math.max(0, Math.min(window.innerWidth - 10, x));
+            y = Math.max(0, Math.min(window.innerHeight - 10, y));
 
             ws.send(JSON.stringify({ type: 'cursor', x: x, y: y, ip: userIP }));
         }
@@ -63,15 +65,13 @@
 
         function renderCursors() {
             const cursorsDiv = document.getElementById("cursors");
-            cursorsDiv.innerHTML = ''; // Clear existing cursors
+            cursorsDiv.innerHTML = '';
 
             for (const [ip, pos] of Object.entries(cursors)) {
-                // Skip rendering the cursor for the current user's IP
                 if (ip === userIP) continue;
 
                 let cursorPixel = document.getElementById(`cursor-${ip}`);
 
-                // Create the cursor element if it doesn't exist
                 if (!cursorPixel) {
                     cursorPixel = document.createElement('div');
                     cursorPixel.id = `cursor-${ip}`;
@@ -79,31 +79,36 @@
                     cursorPixel.style.width = '10px';
                     cursorPixel.style.height = '10px';
                     cursorPixel.style.borderRadius = '100px';
-                    cursorPixel.style.backgroundColor = 'red'; // Customize color per user if needed
-                    cursorPixel.style.transition = 'left 0.1s ease, top 0.1s ease'; // Add transition for smooth movement
-                    cursorPixel.title = ip; // Show IP on hover
+                    cursorPixel.style.backgroundColor = 'red';
+                    cursorPixel.style.transition = 'left 0.1s ease, top 0.1s ease';
+                    cursorPixel.title = ip;
                     cursorsDiv.appendChild(cursorPixel);
                 }
 
-                // Update position
                 cursorPixel.style.left = `${pos.x}px`;
                 cursorPixel.style.top = `${pos.y}px`;
             }
         }
 
+        window.onload = function () {
+            checkSession();
+        };
 
-
-        // Attach mousemove event listener
         document.addEventListener('mousemove', sendCursorPosition);
     </script>
 
 </head>
 
 <body class="bg-gray-100">
-    <nav class="p-4 bg-blue-500 text-white">
-        <a href="/nav-content" hx-get="/nav-content" hx-target="this">Load Nav</a>
+    <nav class="p-4 bg-blue-500 text-white flex justify-between items-center">
+        <a href="/nav-content" hx-get="/nav-content" hx-target="this" class="hover:underline">Load Nav</a>
+        <div>
+            <button id="loginButton" class="bg-blue-700 hover:bg-blue-600 text-white px-4 py-2 rounded mr-2"
+                onclick="showLoginForm()">Login</button>
+            <button id="registerButton" class="bg-blue-700 hover:bg-blue-600 text-white px-4 py-2 rounded"
+                onclick="showRegisterForm()">Register</button>
+        </div>
     </nav>
-
     <div id="sidepanel" class="p-4 bg-gray-200" hx-get="/side-content" hx-trigger="load">
         Loading sidepanel...
     </div>
@@ -112,13 +117,11 @@
         Loading content...
     </div>
 
-    <!-- Chat Button (Stick out from the side) -->
     <button id="chatButton"
         class="fixed right-0 top-1/2 transform -translate-y-1/2 bg-blue-500 text-white p-2 rounded-l-md">
         Chat
     </button>
 
-    <!-- Chat container on the right -->
     <div id="chatContainer" class="fixed right-0 top-0 h-full w-72 bg-white border-l shadow-lg hidden">
         <div class="p-2 bg-blue-500 text-white flex items-center justify-between">
             <span>Chat</span>
@@ -130,13 +133,32 @@
             <button onclick="sendMessage()" class="bg-blue-500 text-white p-2 mt-2 w-full">Send</button>
         </div>
     </div>
-
+    <div id="authContainer"
+        class="fixed top-0 left-0 w-full h-full bg-gray-800 bg-opacity-50 flex items-center justify-center hidden">
+        <div class="bg-white p-6 rounded shadow-md">
+            <div class="p-2 bg-blue-500 text-white flex items-center justify-between">
+                <h2 class="text-xl" id="authTitle">Login</h2>
+                <button id="switchToRegister" class="bg-transparent text-white ml-2"
+                    onclick="toggleAuthForm()">✖</button>
+            </div>
+            <div id="authMessage" class="text-red-500 mb-4"></div>
+            <input type="text" id="authUsername" class="border p-2 w-full mb-2" placeholder="Username">
+            <input type="password" id="authPassword" class="border p-2 w-full mb-2" placeholder="Password">
+            <button id="authSubmit" class="bg-blue-500 text-white p-2 w-full">Login</button>
+        </div>
+    </div>
 
     <div id="cursors" class="absolute pointer-events-none"></div> <!-- To display cursors -->
 
 </body>
 
 <style>
+    body {
+        margin: 0;
+        padding: 0;
+        height: 100vh;
+    }
+
     #cursors {
         left: 0;
         top: 0;
@@ -155,7 +177,51 @@
         cursor: pointer;
     }
 </style>
+<script>
+    function showLoginForm() {
+        document.getElementById('authTitle').innerText = 'Login';
+        document.getElementById('authSubmit').innerText = 'Login';
+        document.getElementById('switchToRegister').innerText = '✖';
+        document.getElementById('authContainer').classList.remove('hidden');
+    }
 
+    function showRegisterForm() {
+        document.getElementById('authTitle').innerText = 'Register';
+        document.getElementById('authSubmit').innerText = 'Register';
+        document.getElementById('switchToRegister').innerText = '✖';
+        document.getElementById('authContainer').classList.remove('hidden');
+    }
+
+    function toggleAuthForm() {
+        const authContainer = document.getElementById('authContainer');
+        authContainer.classList.toggle('hidden');
+    }
+
+    document.getElementById('authSubmit').addEventListener('click', function () {
+        const username = document.getElementById('authUsername').value;
+        const password = document.getElementById('authPassword').value;
+        const isLogin = document.getElementById('authTitle').innerText === 'Login';
+
+        const url = isLogin ? '/login' : '/register';
+
+        fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ username, password })
+        }).then(response => {
+            if (response.ok) {
+                document.getElementById('authMessage').innerText = 'Success!';
+                toggleAuthForm();
+            } else {
+                return response.json().then(data => {
+                    document.getElementById('authMessage').innerText = data.message;
+                });
+            }
+        });
+    });
+</script>
 <script>
     function toggleChat() {
         const chatContainer = document.getElementById('chatContainer');
