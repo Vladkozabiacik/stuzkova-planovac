@@ -8,20 +8,95 @@
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <script src="https://unpkg.com/htmx.org"></script>
     <script>
+        let userIP = ""; // Initialize userIP variable
+
+        // Fetch the user's IP when the page loads
+        fetch("/get-ip")
+            .then(response => response.json())
+            .then(data => {
+                userIP = data.ip; // Store the user IP
+            });
+
         const ws = new WebSocket("ws://10.1.3.183:8080/ws");
+        const cursors = {}; // Store cursor positions and IPs
 
         ws.onmessage = function (event) {
-            const chat = document.getElementById("chat");
-            chat.innerHTML += `<div>${event.data}</div>`;
-        };
+            try {
+                const data = JSON.parse(event.data); // Try to parse the message as JSON
 
+                if (data.type === 'cursor') {
+                    cursors[data.ip] = { x: data.x, y: data.y };
+                    renderCursors();
+                } else if (data.type === 'disconnected') {
+                    // Remove the cursor of the disconnected user
+                    delete cursors[data.ip];
+                    renderCursors();
+                }
+            } catch (error) {
+                // If it's not JSON, handle it as plain text chat message
+                const chat = document.getElementById("chat");
+                chat.innerHTML += `<div>${event.data}</div>`;
+
+                // Scroll to the bottom of the chat
+                chat.scrollTop = chat.scrollHeight;
+            }
+        };
 
         function sendMessage() {
             const input = document.getElementById("message");
             ws.send(input.value);
             input.value = '';
         }
+
+        function sendCursorPosition(event) {
+            const rect = document.body.getBoundingClientRect();
+            let x = event.clientX - rect.left + window.scrollX; // Add scroll offset
+            let y = event.clientY - rect.top + window.scrollY;  // Add scroll offset
+
+            // Clamp x and y values to prevent cursor from going off the page
+            x = Math.max(0, Math.min(window.innerWidth - 10, x)); // 10 is the cursor width
+            y = Math.max(0, Math.min(window.innerHeight - 10, y)); // 10 is the cursor height
+
+            ws.send(JSON.stringify({ type: 'cursor', x: x, y: y, ip: userIP }));
+        }
+
+
+        function renderCursors() {
+            const cursorsDiv = document.getElementById("cursors");
+            cursorsDiv.innerHTML = ''; // Clear existing cursors
+
+            for (const [ip, pos] of Object.entries(cursors)) {
+                // Skip rendering the cursor for the current user's IP
+                if (ip === userIP) continue;
+
+                let cursorPixel = document.getElementById(`cursor-${ip}`);
+
+                // Create the cursor element if it doesn't exist
+                if (!cursorPixel) {
+                    cursorPixel = document.createElement('div');
+                    cursorPixel.id = `cursor-${ip}`;
+                    cursorPixel.style.position = 'absolute';
+                    cursorPixel.style.width = '10px';
+                    cursorPixel.style.height = '10px';
+                    cursorPixel.style.borderRadius = '100px';
+                    cursorPixel.style.backgroundColor = 'red'; // Customize color per user if needed
+                    cursorPixel.style.transition = 'left 0.1s ease, top 0.1s ease'; // Add transition for smooth movement
+                    cursorPixel.title = ip; // Show IP on hover
+                    cursorsDiv.appendChild(cursorPixel);
+                }
+
+                // Update position
+                cursorPixel.style.left = `${pos.x}px`;
+                cursorPixel.style.top = `${pos.y}px`;
+            }
+        }
+
+
+
+        // Attach mousemove event listener
+        document.addEventListener('mousemove', sendCursorPosition);
     </script>
+
 </head>
 
 <body class="bg-gray-100">
@@ -37,12 +112,74 @@
         Loading content...
     </div>
 
-    <div id="chat" class="p-4 bg-white border rounded">
-        Loading chat...
+    <!-- Chat Button (Stick out from the side) -->
+    <button id="chatButton"
+        class="fixed right-0 top-1/2 transform -translate-y-1/2 bg-blue-500 text-white p-2 rounded-l-md">
+        Chat
+    </button>
+
+    <!-- Chat container on the right -->
+    <div id="chatContainer" class="fixed right-0 top-0 h-full w-72 bg-white border-l shadow-lg hidden">
+        <div class="p-2 bg-blue-500 text-white flex items-center justify-between">
+            <span>Chat</span>
+            <button id="closeChatButton" class="bg-transparent text-white ml-2" onclick="toggleChat()">✖</button>
+        </div>
+        <div id="chat" class="p-4 bg-white border rounded h-3/4 overflow-y-auto"></div>
+        <div class="p-2 border-t">
+            <input type="text" id="message" class="border p-2 w-full" placeholder="Type a message...">
+            <button onclick="sendMessage()" class="bg-blue-500 text-white p-2 mt-2 w-full">Send</button>
+        </div>
     </div>
 
-    <input type="text" id="message" class="border p-2" placeholder="Type a message...">
-    <button onclick="sendMessage()" class="bg-blue-500 text-white p-2">Send</button>
+
+    <div id="cursors" class="absolute pointer-events-none"></div> <!-- To display cursors -->
+
 </body>
+
+<style>
+    #cursors {
+        left: 0;
+        top: 0;
+    }
+
+    #chat {
+        max-height: 100%;
+        overflow-y: auto;
+    }
+
+    #chatContainer {
+        width: 300px;
+    }
+
+    #chatButton {
+        cursor: pointer;
+    }
+</style>
+
+<script>
+    function toggleChat() {
+        const chatContainer = document.getElementById('chatContainer');
+        const chatButton = document.getElementById('chatButton');
+
+        if (chatContainer.classList.contains('hidden')) {
+            chatContainer.classList.remove('hidden');
+            chatButton.textContent = 'Close Chat'; // Update button text
+        } else {
+            chatContainer.classList.add('hidden');
+            chatButton.textContent = 'Chat'; // Update button text
+        }
+    }
+
+    // Update chat button to use the new toggleChat function
+    document.getElementById('chatButton').addEventListener('click', toggleChat);
+
+
+    document.getElementById("message").addEventListener("keydown", function (event) {
+        if (event.key === "Enter") {
+            event.preventDefault(); // Prevent form submission (if any)
+            sendMessage(); // Call sendMessage function
+        }
+    });
+</script>
 
 </html>
