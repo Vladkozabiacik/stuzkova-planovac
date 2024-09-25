@@ -9,159 +9,32 @@
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <!-- HTMX for interactive components -->
     <script src="https://unpkg.com/htmx.org"></script>
-    <script>
-        let userIP;
-        let currentUser;
-        const cursors = {};
-        let ws; // Declare ws here so we can access it in the reconnect function
-        const reconnectDelay = 5000; // Delay in milliseconds before attempting to reconnect
-
-        // Function to establish a WebSocket connection
-        function connectWebSocket() {
-            ws = new WebSocket("ws://127.0.0.1:8080/ws");
-
-            ws.onopen = function () {
-                console.log("WebSocket connection established.");
-                document.addEventListener('mousemove', sendCursorPosition);
-            };
-
-            // WebSocket message handling
-            ws.onmessage = function (event) {
-                try {
-                    const data = JSON.parse(event.data);
-
-                    if (data.type === 'message') {
-                        appendMessage(data.text, data.user || 'Anonymous'); // Append chat message
-                    } else if (data.type === 'cursor') {
-                        cursors[data.ip] = { x: data.x, y: data.y };
-                        renderCursors(); // Render cursor movement
-                    } else if (data.type === 'disconnected') {
-                        delete cursors[data.ip];
-                        renderCursors(); // Remove disconnected cursor
-                    }
-                } catch (error) {
-                    console.error("Error parsing message:", error);
-                }
-            };
-
-            // Handle WebSocket closure
-            ws.onclose = function () {
-                console.log("WebSocket connection closed. Attempting to reconnect...");
-                document.removeEventListener('mousemove', sendCursorPosition);
-                setTimeout(connectWebSocket, reconnectDelay); // Try to reconnect after the delay
-            };
-
-            ws.onerror = function (error) {
-                console.error("WebSocket error observed:", error);
-            };
-        }
-
-        // Fetch user IP
-        fetch("/get-ip")
-            .then(response => response.json())
-            .then(data => {
-                userIP = data.ip;
-            });
-
-        // Check active session on page load
-        window.onload = function () {
-            connectWebSocket(); // Establish WebSocket connection
-            checkSession();
-        };
-
-        // Function to check user session
-        function checkSession() {
-            fetch('/session')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.username) {
-                        currentUser = data.username; // Store username
-                        document.getElementById('sessionInfo').innerText = `Session: ${currentUser}`;
-                    }
-                });
-        }
-
-        // Append chat message to UI
-        function appendMessage(message, user) {
-            const chat = document.getElementById('chat');
-            const messageDiv = document.createElement('div');
-            messageDiv.classList.add('p-2', 'border-b');
-            messageDiv.textContent = `${user}: ${message}`;
-            chat.appendChild(messageDiv);
-            chat.scrollTop = chat.scrollHeight; // Scroll to the latest message
-        }
-
-        // Send chat message through WebSocket
-        function sendMessage() {
-            const input = document.getElementById("message");
-            const message = input.value;
-            if (!message) return;
-
-            const messageObject = {
-                type: 'message',
-                text: message,
-                user: currentUser // Pass current username
-            };
-            ws.send(JSON.stringify(messageObject)); // Send message
-            input.value = ''; // Clear input
-        }
-
-        // Send cursor position via WebSocket
-        function sendCursorPosition(event) {
-            const rect = document.body.getBoundingClientRect();
-            let x = event.clientX - rect.left + window.scrollX;
-            let y = event.clientY - rect.top + window.scrollY;
-
-            // Ensure cursor is within viewport
-            x = Math.max(0, Math.min(window.innerWidth - 10, x));
-            y = Math.max(0, Math.min(window.innerHeight - 10, y));
-
-            ws.send(JSON.stringify({ type: 'cursor', x: x, y: y, ip: userIP }));
-        }
-
-        // Render all active cursors
-        function renderCursors() {
-            const cursorsDiv = document.getElementById("cursors");
-            cursorsDiv.innerHTML = ''; // Clear existing cursors
-
-            for (const [ip, pos] of Object.entries(cursors)) {
-                if (ip === userIP) continue; // Skip the user's own cursor
-
-                let cursorPixel = document.getElementById(`cursor-${ip}`);
-
-                if (!cursorPixel) {
-                    // Create a new cursor div if not already present
-                    cursorPixel = document.createElement('div');
-                    cursorPixel.id = `cursor-${ip}`;
-                    cursorPixel.style.position = 'absolute';
-                    cursorPixel.style.width = '10px';
-                    cursorPixel.style.height = '10px';
-                    cursorPixel.style.borderRadius = '100px';
-                    cursorPixel.style.backgroundColor = 'red';
-                    cursorPixel.style.transition = 'left 0.1s ease, top 0.1s ease';
-                    cursorPixel.title = ip;
-                    cursorsDiv.appendChild(cursorPixel);
-                }
-
-                cursorPixel.style.left = `${pos.x}px`;
-                cursorPixel.style.top = `${pos.y}px`;
-            }
-        }
-
-    </script>
-
+    <!-- External CSS File -->
+    <link rel="stylesheet" href="./styles.css"> <!-- Link to the new CSS file -->
+    <!-- External JavaScript Files -->
+    <script src="./js/cursors.js" defer></script>
+    <script src="./js/chat.js" defer></script>
+    <script src="./js/auth.js" defer></script>
+    <script src="./js/websocket.js" defer></script>
 </head>
 
 <body class="bg-gray-100">
 
-    <!-- Navigation Bar -->
+    <!-- Nav -->
     <nav class="p-4 bg-blue-500 text-white flex justify-between items-center">
-        <a href="/nav-content" hx-get="/nav-content" hx-target="this" class="hover:underline">Load Nav</a>
+        <div class="flex">
+            <!-- WebSocket Status -->
+            <div id="wsStatus" class="p-4 bg-gray-200 text-black">WebSocket Status: Disconnected</div>
+            <!-- Session Status -->
+            <div id="sessionStatus" class="p-4 bg-gray-200 text-black">Session Status: Not logged in</div>
+        </div>
         <div>
             <button id="loginButton" class="bg-blue-700 hover:bg-blue-600 text-white px-4 py-2 rounded mr-2"
                 onclick="showLoginForm()">Login</button>
             <button id="registerButton" class="bg-blue-700 hover:bg-blue-600 text-white px-4 py-2 rounded"
                 onclick="showRegisterForm()">Register</button>
+            <button id="logoutButton" class="bg-red-700 hover:bg-red-600 text-white px-4 py-2 rounded hidden"
+                onclick="logout()">Logout</button>
         </div>
     </nav>
 
@@ -188,7 +61,7 @@
         </div>
     </div>
 
-    <!-- Authentication Modal -->
+    <!-- Auth Modal -->
     <div id="authContainer"
         class="fixed top-0 left-0 w-full h-full bg-gray-800 bg-opacity-50 flex items-center justify-center hidden">
         <div class="bg-white p-6 rounded shadow-md">
@@ -204,125 +77,9 @@
         </div>
     </div>
 
-    <!-- Session Info -->
-    <div id="sessionInfo" class="p-4 bg-green-200 text-green-800"></div>
-
     <!-- Cursor Tracking -->
     <div id="cursors" class="absolute pointer-events-none"></div>
 
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            height: 100vh;
-        }
-
-        #cursors {
-            left: 0;
-            top: 0;
-        }
-
-        #chat {
-            max-height: 100%;
-            overflow-y: auto;
-        }
-
-        #chatContainer {
-            width: 300px;
-        }
-
-        #chatButton {
-            cursor: pointer;
-        }
-    </style>
-
-
-    <script>
-        function showLoginForm() {
-            document.getElementById('authTitle').innerText = 'Login';
-            document.getElementById('authSubmit').innerText = 'Login';
-            document.getElementById('switchToRegister').innerText = '✖';
-            document.getElementById('authContainer').classList.remove('hidden');
-        }
-
-        function showRegisterForm() {
-            document.getElementById('authTitle').innerText = 'Register';
-            document.getElementById('authSubmit').innerText = 'Register';
-            document.getElementById('switchToRegister').innerText = '✖';
-            document.getElementById('authContainer').classList.remove('hidden');
-        }
-
-        function toggleAuthForm() {
-            const authContainer = document.getElementById('authContainer');
-            authContainer.classList.toggle('hidden');
-        }
-
-        document.getElementById('authSubmit').addEventListener('click', function () {
-            const username = document.getElementById('authUsername').value;
-            const password = document.getElementById('authPassword').value;
-            const isLogin = document.getElementById('authTitle').innerText === 'Login';
-
-            const url = isLogin ? '/login' : '/register';
-
-            fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ username, password })
-            }).then(response => {
-                if (response.ok) {
-                    document.getElementById('authMessage').innerText = 'Success!';
-                    toggleAuthForm();
-                    // After successful login or registration, make a POST request to /session
-                    return fetch('/session', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({ username })
-                    });
-                } else {
-                    return response.json().then(data => {
-                        document.getElementById('authMessage').innerText = data.message;
-                    });
-                }
-            }).then(sessionResponse => {
-                if (sessionResponse && sessionResponse.ok) {
-                    console.log('Session updated successfully.');
-                } else if (sessionResponse) {
-                    console.error('Failed to update session:', sessionResponse.statusText);
-                }
-            }).catch(error => {
-                console.error('Error:', error);
-            });
-        });
-
-    </script>
-    <script>
-        function toggleChat() {
-            const chatContainer = document.getElementById('chatContainer');
-            const chatButton = document.getElementById('chatButton');
-
-            if (chatContainer.classList.contains('hidden')) {
-                chatContainer.classList.remove('hidden');
-                chatButton.textContent = 'Close Chat'; // Update button text
-            } else {
-                chatContainer.classList.add('hidden');
-                chatButton.textContent = 'Chat'; // Update button text
-            }
-        }
-
-        // Update chat button to use the new toggleChat function
-        document.getElementById('chatButton').addEventListener('click', toggleChat);
-
-
-        document.getElementById("message").addEventListener("keydown", function (event) {
-            if (event.key === "Enter") {
-                event.preventDefault(); // Prevent form submission (if any)
-                sendMessage(); // Call sendMessage function
-            }
-        });
-    </script>
+</body>
 
 </html>

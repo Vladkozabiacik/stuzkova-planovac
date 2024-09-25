@@ -1,0 +1,23 @@
+body {
+    margin: 0;
+    padding: 0;
+    height: 100vh;
+}
+
+#cursors {
+    left: 0;
+    top: 0;
+}
+
+#chat {
+    max-height: 100%;
+    overflow-y: auto;
+}
+
+#chatContainer {
+    width: 300px;
+}
+
+#chatButton {
+    cursor: pointer;
+}

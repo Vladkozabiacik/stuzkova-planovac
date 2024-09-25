@@ -22,23 +22,20 @@ func main() {
 		port = "8080"
 	}
 
-	// Connect to the database
 	db, err := models.ConnectToDB()
 	if err != nil {
 		log.Fatalf("Error connecting to database: %v", err)
 	}
 	defer db.Close()
 
-	// Setup routes
 	http.HandleFunc("/ws", handlers.HandleWebSocket)
 	http.Handle("/", http.FileServer(http.Dir("./static")))
 	http.HandleFunc("/get-ip", handlers.IPHandler)
 	http.HandleFunc("/register", handlers.RegisterHandler)
 	http.HandleFunc("/login", handlers.LoginHandler)
 	http.HandleFunc("/logout", handlers.LogoutHandler)
-	http.HandleFunc("/session", handlers.SessionHandler)
+	http.HandleFunc("/session-status", handlers.SessionStatusHandler)
 
-	// Start the server
 	log.Printf("Server started on :%s", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }

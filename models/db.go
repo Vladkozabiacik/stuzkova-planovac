@@ -11,7 +11,6 @@ import (
 
 var DB *sql.DB
 
-// ConnectToDB establishes a connection to PostgreSQL database
 func ConnectToDB() (*sql.DB, error) {
 	host := os.Getenv("DB_HOST")
 	port := os.Getenv("DB_PORT")
